@@ -1,0 +1,264 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+.idea/
+
+# Docker
+.dockerignore
+Dockerfile.prod
+docker-compose.prod.yml
+docker-compose.override.yml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+postgres_data/
+
+# Logs
+logs/
+*.log
+log/
+
+# AI Models and Cache
+models/
+.cache/
+huggingface_cache/
+sentence_transformers/
+ollama_models/
+.ollama/
+
+# Vector Database
+qdrant_storage/
+vector_db/
+
+# Application Data
+app_data/
+user_data/
+uploads/
+documents/
+temp/
+tmp/
+
+# PyQt6 UI Files
+*.ui~
+*.qrc~
+
+# Build artifacts
+build/
+dist/
+*.dmg
+*.exe
+*.msi
+*.app
+*.deb
+*.rpm
+*.AppImage
+
+# IDE and Editor files
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Configuration
+config.ini
+local_config.py
+production.env
+development.env
+
+# Secrets and Keys
+*.pem
+*.key
+*.crt
+*.p12
+client_secret*.json
+service_account*.json
+auth_tokens.json
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+test_results/
+screenshots/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Temporary files
+*.tmp
+*.temp
+.temporary/
+
+# Performance profiling
+*.prof
+*.pstats
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# Package management
+.pip-wheel-metadata/
+
+# Cython
+*.c
+*.cpp
+*.html
+pyrex_debug/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
