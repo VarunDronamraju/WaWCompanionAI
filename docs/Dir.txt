@@ -1,0 +1,139 @@
+rag-desktop-app/
+├── README.md                           # [Phase 1, 15] Project documentation & setup guide
+├── .gitignore                         # [Phase 1] Version control exclusions
+├── requirements.txt                   # [Phase 2-14] Python dependencies (evolving)
+├── .env.example                       # [Phase 2, 9, 12] Environment variables template
+├── docker-compose.yml                 # [Phase 2] Service orchestration
+│
+├── backend/                           # FastAPI server & RAG pipeline
+│   ├── __init__.py                   # Python package marker
+│   ├── main.py                       # [Phase 3, 12] FastAPI app entry & middleware
+│   ├── config.py                     # [Phase 3, 6, 9, 12] Environment configuration
+│   ├── api_routes.py                 # [Phase 3, 7, 8, 10, 12] REST endpoints
+│   ├── schemas.py                    # [Phase 3, 7, 10] Pydantic validation models
+│   ├── utils.py                      # [Phase 3, 4, 5, 9] File processing & utilities
+│   ├── documents.py                  # [Phase 4, 5, 6, 10] Document processing pipeline
+│   ├── rag.py                        # [Phase 6, 7, 8] Qdrant integration & RAG logic
+│   ├── llm.py                        # [Phase 8, 9] Ollama/Gemma3:1B & TAVILY integration
+│   ├── database.py                   # [Phase 10, 12] PostgreSQL models & CRUD
+│   └── auth.py                       # [Phase 12] Google OAuth & JWT management
+│
+├── frontend/                         # PyQt6 desktop application
+│   ├── __init__.py                   # Python package marker
+│   ├── main.py                       # [Phase 11, 13] PyQt6 app entry & system tray
+│   ├── main_window.py                # [Phase 11, 12, 13] Main UI components
+│   ├── api_client.py                 # [Phase 11, 12] Backend HTTP communication
+│   ├── session_manager.py            # [Phase 11, 12, 13] Local session persistence
+│   ├── styles.qss                    # [Phase 11] Modern dark theme styling
+│   └── resources/                    # UI assets & icons
+│       ├── icons/
+│       │   ├── app.png              # Application icon (256x256)
+│       │   ├── tray.png             # System tray icon (16x16)
+│       │   ├── upload.svg           # Upload button icon
+│       │   ├── chat.svg             # Chat interface icon
+│       │   ├── document.svg         # Document management icon
+│       │   └── settings.svg         # Settings panel icon
+│       └── app.ico                   # [Phase 11, 14] Windows executable icon
+│
+├── deployment/                       # Containerization & packaging
+│   ├── Dockerfile.backend           # [Phase 2] FastAPI container definition
+│   ├── Dockerfile.qdrant            # [Phase 2] Qdrant vector store container
+│   ├── build_installer.py           # [Phase 14] PyInstaller automation
+│   ├── installer.spec               # [Phase 14] PyInstaller configuration
+│   ├── deploy.sh                    # [Phase 2, 14, 15] Deployment automation
+│   └── docker/                      # Additional Docker configurations
+│       ├── nginx.conf               # Reverse proxy configuration
+│       └── postgres-init.sql        # Database initialization script
+│
+├── tests/                           # Quality assurance & testing
+│   ├── __init__.py                  # Python package marker
+│   ├── conftest.py                  # [Phase 15] Pytest configuration & fixtures
+│   ├── test_auth.py                 # [Phase 15] Authentication flow testing
+│   ├── test_rag.py                  # [Phase 15] RAG pipeline testing
+│   ├── test_api.py                  # [Phase 15] API endpoint testing
+│   ├── test_documents.py            # [Phase 15] Document processing testing
+│   ├── test_frontend.py             # [Phase 15] PyQt6 UI testing
+│   └── fixtures/                    # Test data & mock files
+│       ├── sample.pdf               # Test PDF document
+│       ├── sample.docx              # Test Word document
+│       └── sample.txt               # Test text file
+│
+├── scripts/                         # Development automation & utilities
+│   ├── setup_dev.py                # [Phase 1, 2] Development environment setup
+│   ├── init_models.py               # [Phase 5, 8] AI model download & setup
+│   ├── cythonize.py                 # [Phase 15] Performance optimization
+│   ├── migrate_db.py                # [Phase 10] Database migration utilities
+│   ├── backup_data.py               # [Phase 15] Data backup automation
+│   └── performance_test.py          # [Phase 15] Benchmarking & profiling
+│
+├── docs/                            # Documentation & guides
+│   ├── API.md                       # [Phase 15] Complete API reference
+│   ├── SETUP.md                     # [Phase 15] Installation & setup guide
+│   ├── DEVELOPMENT.md               # [Phase 15] Development workflow
+│   ├── ARCHITECTURE.md              # [Phase 15] System architecture overview
+│   └── DEPLOYMENT.md                # [Phase 15] Production deployment guide
+│
+├── models/                          # AI model storage (created by scripts)
+│   ├── sentence-transformers/       # Embedding models cache
+│   │   └── all-MiniLM-L6-v2/       # Downloaded by init_models.py
+│   └── ollama/                      # Ollama model storage
+│       └── gemma3:1b-it-qat/       # Gemma3 1B quantized model
+│
+└── build/                           # Build artifacts (created during packaging)
+    ├── dist/                        # Final executables
+    │   ├── rag-desktop-app.exe     # Windows executable
+    │   └── rag-desktop-app.dmg     # macOS disk image
+    └── temp/                        # Temporary build files
+
+# Key File Relationships & Dependencies
+
+## Backend Core Chain:
+config.py → utils.py → documents.py → rag.py → llm.py → api_routes.py
+
+## Frontend Integration Chain:
+api_client.py → main_window.py → main.py
+session_manager.py → ALL frontend components
+styles.qss → main.py (theming)
+
+## Database Chain:
+database.py → auth.py → api_routes.py
+schemas.py → api_routes.py (validation)
+
+## Build Chain:
+All source files → build_installer.py → dist/ (final executables)
+Docker files → deploy.sh → production deployment
+
+## Development Utilities Chain:
+setup_dev.py → init_models.py → development environment
+scripts/*.py → tests/ → quality assurance
+
+# Critical Phase Milestones:
+
+## Phase 1-3: Foundation
+- Repository structure ✓
+- Docker environment ✓  
+- Basic FastAPI with upload ✓
+
+## Phase 4-6: Core RAG Backend
+- Document processing ✓
+- Embedding generation ✓
+- Qdrant vector storage ✓
+
+## Phase 7-9: AI Integration  
+- Complete RAG pipeline ✓
+- Gemma3:1B integration ✓
+- TAVILY fallback ✓
+
+## Phase 10-12: Data & Auth
+- PostgreSQL models ✓
+- Google OAuth ✓
+- PyQt6 frontend ✓
+
+## Phase 13-15: Production
+- System tray integration ✓
+- PyInstaller packaging ✓
+- Performance optimization ✓
+
+# Total Files: ~40-50 core files across 15 phases
+# Key Technologies: FastAPI, PyQt6, PostgreSQL, Qdrant, Ollama, SentenceTransformers
+# Model: Gemma3:1B-IT-QAT (1.0GB quantized) for optimal desktop performance
