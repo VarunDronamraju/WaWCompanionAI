@@ -1,0 +1,50 @@
+# Production-grade Qdrant configuration with persistent storage and optimizations
+FROM qdrant/qdrant:v1.7.4
+
+# Set environment variables for Qdrant optimization
+ENV QDRANT__SERVICE__HTTP_PORT=6333 \
+    QDRANT__SERVICE__GRPC_PORT=6334 \
+    QDRANT__LOG_LEVEL=INFO \
+    QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=0 \
+    QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS=1 \
+    QDRANT__STORAGE__PERFORMANCE__INDEXING_THRESHOLD=20000
+
+# Switch to root to create directories and users
+USER root
+
+# Create qdrant user and group if they don't exist
+RUN if ! getent group qdrant > /dev/null 2>&1; then \
+        addgroup --system qdrant; \
+    fi && \
+    if ! getent passwd qdrant > /dev/null 2>&1; then \
+        adduser --system --ingroup qdrant --home /qdrant --shell /bin/bash qdrant; \
+    fi
+
+# Create custom configuration and data directories
+RUN mkdir -p /qdrant/config /qdrant/storage /qdrant/snapshots /qdrant/logs
+
+# Copy custom configuration
+COPY deployment/qdrant-config.yaml /qdrant/config/production.yaml
+
+# Set proper ownership and permissions
+RUN chown -R qdrant:qdrant /qdrant && \
+    chmod -R 755 /qdrant/config && \
+    chmod -R 755 /qdrant/storage && \
+    chmod -R 755 /qdrant/snapshots && \
+    chmod -R 755 /qdrant/logs
+
+# Switch back to qdrant user for security
+USER qdrant
+
+# Health check for Qdrant service
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:6333/health || exit 1
+
+# Expose ports
+EXPOSE 6333 6334
+
+# Volume for persistent storage
+VOLUME ["/qdrant/storage", "/qdrant/snapshots"]
+
+# Default command with custom config
+CMD ["./qdrant", "--config-path", "/qdrant/config/production.yaml"]
