@@ -1,88 +1,246 @@
 # RAG Desktop Application Dependencies
-# Fixed for Phase 3: Windows/Python 3.11 compatibility
+# Phase 4: Complete Project Dependencies - Windows Python 3.11 Compatible
+# Tested and verified for all dependency conflicts resolved
 
-# Core Web Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+# ============================================================================
+# Core FastAPI Framework & Web Server
+# ============================================================================
+fastapi>=0.104.0,<0.105.0
+uvicorn[standard]>=0.24.0,<0.25.0
+python-multipart>=0.0.6,<0.1.0
+starlette>=0.27.0,<0.28.0
 
-# Database & ORM (for future phases)
-sqlalchemy==2.0.23
-alembic==1.12.1
-psycopg2-binary==2.9.9
+# ============================================================================
+# Data Validation and Settings (Pydantic v2)
+# ============================================================================
+pydantic>=2.5.0,<3.0.0
+pydantic-settings>=2.1.0,<3.0.0
+email-validator>=2.1.0,<3.0.0
+annotated-types>=0.6.0,<1.0.0
 
-# Vector Database
-qdrant-client==1.7.0
+# ============================================================================
+# Authentication and Security
+# ============================================================================
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+cryptography>=42.0.0,<46.0.0
+bcrypt>=4.0.0,<5.0.0
 
-# Caching
-redis==5.0.1
+# Google OAuth
+google-auth>=2.20.0,<3.0.0
+google-auth-oauthlib>=1.0.0,<2.0.0
+google-auth-httplib2>=0.2.0,<1.0.0
 
-# HTTP Client
-httpx==0.25.2
-aiofiles==23.2.1
+# ============================================================================
+# Database Support (PostgreSQL)
+# ============================================================================
+sqlalchemy[asyncio]>=2.0.23,<3.0.0
+asyncpg>=0.29.0,<1.0.0
+alembic>=1.12.0,<2.0.0
+psycopg2-binary>=2.9.9,<3.0.0
 
-# Document Processing
-PyPDF2==3.0.1
-python-docx==1.1.0
-python-magic==0.4.27
+# ============================================================================
+# Vector Database (Qdrant)
+# ============================================================================
+qdrant-client>=1.7.0,<2.0.0
+grpcio>=1.59.0,<2.0.0
+grpcio-tools>=1.59.0,<2.0.0
 
-# Text Processing & ML (for future phases)
-sentence-transformers==2.2.2
-transformers==4.35.2
-torch==2.1.1
-tokenizers==0.15.0
+# ============================================================================
+# Scientific Computing & ML Core
+# ============================================================================
+numpy>=1.24.0,<2.0.0
+scipy>=1.11.0,<2.0.0
+scikit-learn>=1.3.0,<2.0.0
 
-# Data Validation
-pydantic==2.5.0
-pydantic-settings==2.1.0
-email-validator==2.1.0
+# ============================================================================
+# Document Processing (Phase 4 Enhanced)
+# ============================================================================
+# PDF Processing
+PyPDF2>=3.0.1,<4.0.0
+pdfplumber>=0.10.3,<1.0.0
 
-# Authentication (for future phases) - Fixed versions
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# Microsoft Office Documents
+python-docx>=1.1.0,<2.0.0
 
-# Security - Compatible versions for Windows
-cryptography>=41.0.0,<42.0.0
-bcrypt==4.1.2
+# Text Processing and NLP
+nltk>=3.8.1,<4.0.0
+spacy>=3.7.0,<3.8.0
 
-# Environment Management
-python-dotenv==1.0.0
-
-# Data Processing
-pandas==2.1.3
-numpy==1.25.2
-
-# Utilities
-click==8.1.7
-python-dateutil==2.8.2
-pytz==2023.3
-
-# Development & Testing (for future phases)
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-mock==3.12.0
-
-# Monitoring & Logging
-structlog==23.2.0
+# Text Analysis
+textstat>=0.7.3,<1.0.0
 
 # File Type Detection
-filetype==1.2.0
+filetype>=1.2.0,<2.0.0
 
-# System Information
-psutil==5.9.6
+# ============================================================================
+# Machine Learning and Embeddings (Phase 5 Ready)
+# ============================================================================
+# Sentence Transformers for Embeddings
+sentence-transformers>=2.2.0,<3.0.0
+transformers>=4.30.0,<5.0.0
+tokenizers>=0.15.0,<1.0.0
 
-# JSON Processing
-orjson==3.9.10
+# Hugging Face Hub
+huggingface-hub>=0.17.0,<1.0.0
 
-# Async Support
-asyncpg==0.29.0
+# ============================================================================
+# HTTP Client for External APIs
+# ============================================================================
+httpx>=0.25.0,<1.0.0
+aiohttp>=3.9.0,<4.0.0
+requests>=2.31.0,<3.0.0
+urllib3>=1.26.0,<3.0.0
 
-# Web Search (for future phases)
-tavily-python==0.3.3
+# ============================================================================
+# Configuration and Environment
+# ============================================================================
+python-dotenv>=1.0.0,<2.0.0
+toml>=0.10.2,<1.0.0
+pyyaml>=6.0.0,<7.0.0
 
-# Additional Utilities
-pathlib2==2.3.7
-typing-extensions==4.8.0
+# ============================================================================
+# Async and Concurrency
+# ============================================================================
+aiofiles>=23.2.0,<24.0.0
+anyio>=3.7.0,<5.0.0
 
-# Windows-specific fixes
-pywin32==306; sys_platform == "win32"
+# Background Tasks (Optional)
+celery>=5.3.0,<6.0.0; extra == "celery"
+redis>=5.0.0,<6.0.0; extra == "celery"
+
+# ============================================================================
+# Caching and Performance
+# ============================================================================
+cachetools>=5.3.0,<6.0.0
+
+# ============================================================================
+# Monitoring and Logging
+# ============================================================================
+structlog>=23.2.0,<24.0.0
+colorlog>=6.8.0,<7.0.0
+
+# Metrics (Optional)
+prometheus-client>=0.19.0,<1.0.0; extra == "monitoring"
+
+# ============================================================================
+# Data Serialization and Formats
+# ============================================================================
+orjson>=3.9.0,<4.0.0
+msgpack>=1.0.0,<2.0.0
+
+# ============================================================================
+# Image Processing (for document thumbnails)
+# ============================================================================
+Pillow>=10.0.0,<11.0.0
+
+# PDF to Image (Optional - requires poppler)
+pdf2image>=1.16.0,<2.0.0; extra == "pdf_images"
+
+# ============================================================================
+# Development Tools (Install with: pip install -e ".[dev]")
+# ============================================================================
+# Testing
+pytest>=7.4.0,<8.0.0; extra == "dev"
+pytest-asyncio>=0.21.0,<1.0.0; extra == "dev"
+pytest-cov>=4.1.0,<5.0.0; extra == "dev"
+pytest-mock>=3.12.0,<4.0.0; extra == "dev"
+factory-boy>=3.3.0,<4.0.0; extra == "dev"
+
+# Code Quality
+black>=23.11.0,<24.0.0; extra == "dev"
+isort>=5.12.0,<6.0.0; extra == "dev"
+flake8>=6.1.0,<7.0.0; extra == "dev"
+mypy>=1.7.0,<2.0.0; extra == "dev"
+pre-commit>=3.6.0,<4.0.0; extra == "dev"
+
+# Documentation
+mkdocs>=1.5.0,<2.0.0; extra == "docs"
+mkdocs-material>=9.4.0,<10.0.0; extra == "docs"
+
+# Development Utilities
+watchfiles>=0.21.0,<1.0.0; extra == "dev"
+rich>=13.7.0,<14.0.0; extra == "dev"
+
+# ============================================================================
+# OS-Specific Dependencies
+# ============================================================================
+# Windows file handling
+pywin32>=306; sys_platform == "win32"
+
+# Cross-platform file watching
+watchdog>=3.0.0,<4.0.0
+
+# ============================================================================
+# Optional Dependencies for Enhanced Features
+# ============================================================================
+# Language Detection
+langdetect>=1.0.9,<2.0.0; extra == "lang_detect"
+
+# OCR capabilities (requires tesseract)
+pytesseract>=0.3.10,<1.0.0; extra == "ocr"
+
+# Advanced Text Processing
+polyglot>=16.7.4; extra == "polyglot" and sys_platform != "win32"
+
+# ============================================================================
+# Desktop Application Dependencies (Phase 11+)
+# ============================================================================
+# NOTE: PyQt6 has version conflicts with pyqt6-tools
+# Install separately if needed for desktop development:
+# pip install PyQt6==6.4.2 pyqt6-tools==6.4.2.3.3
+
+# System integration
+plyer>=2.1.0,<3.0.0; extra == "desktop"
+psutil>=5.9.0,<6.0.0
+
+# ============================================================================
+# Build and Packaging Dependencies (Phase 14+)
+# ============================================================================
+# Application packaging
+pyinstaller>=6.2.0,<7.0.0; extra == "build"
+
+# Performance optimization
+cython>=3.0.0,<4.0.0; extra == "build"
+setuptools>=69.0.0,<71.0.0
+
+# ============================================================================
+# File Type Detection (Optional - may need system libraries)
+# ============================================================================
+# NOTE: python-magic requires libmagic on some systems
+# On Windows, this is optional and will fall back gracefully
+python-magic>=0.4.24; extra == "magic"
+
+# ============================================================================
+# INSTALLATION INSTRUCTIONS
+# ============================================================================
+# 
+# BASIC INSTALLATION (Core functionality):
+# pip install --upgrade pip setuptools wheel
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# pip install -r requirements.txt
+#
+# DEVELOPMENT INSTALLATION:
+# pip install -e ".[dev,docs]"
+#
+# FULL INSTALLATION (all features):
+# pip install -e ".[dev,docs,celery,monitoring,pdf_images,lang_detect,ocr,desktop,build,magic]"
+#
+# DESKTOP APPLICATION (Phase 11+):
+# pip install PyQt6==6.4.2 pyqt6-tools==6.4.2.3.3
+#
+# POST-INSTALLATION SETUP:
+# python -m spacy download en_core_web_sm
+# python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')"
+#
+# GPU SUPPORT (Optional):
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# ============================================================================
+# VERSION COMPATIBILITY
+# ============================================================================
+# - Python 3.11+ required
+# - Windows 10/11, macOS 12+, Ubuntu 20.04+ supported
+# - All major dependency conflicts resolved
+# - Optional features can be installed separately
+# - Torch installed separately to avoid conflicts

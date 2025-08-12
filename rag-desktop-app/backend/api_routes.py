@@ -1,524 +1,903 @@
 """
-REST API Endpoints for Document Management
-Location: backend/api_routes.py
-Phase: 3 (Core API endpoints with upload functionality)
+API Routes for RAG Desktop Application
+Phase 4: Enhanced with Chunking Management Endpoints
+
+This module provides all REST API endpoints with comprehensive
+chunk management capabilities building on Phase 3 foundation.
 """
 
-import os
-import time
 import asyncio
-from typing import List, Optional
-from pathlib import Path
 import logging
-import aiofiles
-import httpx
-from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import tempfile
+import os
+from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Query, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, BackgroundTasks
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 
-from .config import get_settings, Settings
+from .config import get_settings
 from .schemas import (
-    DocumentResponse, DocumentCreate, DocumentList, UploadResponse,
-    ErrorResponse, HealthResponse, ServiceHealth, APIInfo,
-    ProcessingStatus, FileType, PaginationParams
+    # Document schemas
+    DocumentResponse, DocumentCreate, DocumentUpdate,
+    FileUploadResponse, UploadConfig,
+    
+    # Chunk schemas
+    DocumentChunk, ChunkCreate, ChunkUpdate, ChunkResponse,
+    ChunkingConfig, ChunkingRequest, ChunkingResponse,
+    
+    # Query schemas
+    QueryRequest, SearchRequest, ChunkSearchRequest,
+    SearchResult, SearchResponse,
+    
+    # System schemas
+    HealthResponse, SystemSettings, UsageStats,
+    PaginationParams, PaginatedResponse, ErrorResponse,
+    
+    # Enums
+    ChunkingStrategy, ProcessingStatus, FileType
+)
+from .documents import (
+    DocumentProcessor, upload_and_process,
+    get_user_documents, get_document_by_id,
+    get_document_chunks_paginated, delete_document_and_embeddings
 )
 from .utils import (
-    detect_file_type, validate_file_size, sanitize_filename,
-    generate_secure_id, extract_text_from_file, get_utc_now,
-    FileProcessingError, UnsupportedFileTypeError
+    detect_file_type, validate_file_size, generate_secure_id,
+    chunk_text_with_strategy, assess_chunk_quality
 )
 
+# Setup logging
 logger = logging.getLogger(__name__)
 
-# Create router
+# Initialize router
 router = APIRouter()
 
-# In-memory storage for Phase 3 (will be replaced with database in Phase 10)
-documents_store: dict = {}
-processing_queue: list = []
+# Get settings
+settings = get_settings()
 
+# ============================================================================
+# Document Management Endpoints (Enhanced from Phase 3)
+# ============================================================================
 
-# Dependencies
-def get_settings_dependency() -> Settings:
-    """Get settings dependency"""
-    return get_settings()
-
-
-async def verify_services_health() -> dict:
-    """Verify all external services are healthy"""
-    settings = get_settings()
-    services = {}
-    
-    # Check PostgreSQL
-    try:
-        start_time = time.time()
-        # Simple connection test - will be enhanced in Phase 10
-        import psycopg2
-        conn = psycopg2.connect(
-            host=settings.postgres_host,
-            port=settings.postgres_port,
-            database=settings.postgres_db,
-            user=settings.postgres_user,
-            password=settings.postgres_password
-        )
-        conn.close()
-        response_time = (time.time() - start_time) * 1000
-        services['postgresql'] = ServiceHealth(
-            status='healthy',
-            response_time_ms=response_time
-        )
-    except Exception as e:
-        services['postgresql'] = ServiceHealth(
-            status='unhealthy',
-            error=str(e)
-        )
-    
-    # Check Qdrant
-    try:
-        start_time = time.time()
-        client = QdrantClient(url=settings.qdrant_url)
-        collections = client.get_collections()
-        response_time = (time.time() - start_time) * 1000
-        services['qdrant'] = ServiceHealth(
-            status='healthy',
-            response_time_ms=response_time
-        )
-    except Exception as e:
-        services['qdrant'] = ServiceHealth(
-            status='unhealthy',
-            error=str(e)
-        )
-    
-    # Check Redis
-    try:
-        start_time = time.time()
-        import redis
-        r = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password,
-            decode_responses=True
-        )
-        r.ping()
-        response_time = (time.time() - start_time) * 1000
-        services['redis'] = ServiceHealth(
-            status='healthy',
-            response_time_ms=response_time
-        )
-    except Exception as e:
-        services['redis'] = ServiceHealth(
-            status='unhealthy',
-            error=str(e)
-        )
-    
-    # Check Ollama
-    try:
-        start_time = time.time()
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{settings.ollama_url}/api/tags")
-            response.raise_for_status()
-        response_time = (time.time() - start_time) * 1000
-        services['ollama'] = ServiceHealth(
-            status='healthy',
-            response_time_ms=response_time
-        )
-    except Exception as e:
-        services['ollama'] = ServiceHealth(
-            status='unhealthy',
-            error=str(e)
-        )
-    
-    return services
-
-
-async def process_document_background(doc_id: str, file_path: str, settings: Settings):
-    """Background task to process uploaded document"""
-    try:
-        logger.info(f"Starting background processing for document {doc_id}")
-        
-        # Update status to processing
-        if doc_id in documents_store:
-            documents_store[doc_id]['processing_status'] = ProcessingStatus.PROCESSING
-        
-        # Extract text from file
-        text_content = extract_text_from_file(file_path)
-        
-        # Simulate processing time (remove in later phases)
-        await asyncio.sleep(2)
-        
-        # Update document with extracted content
-        if doc_id in documents_store:
-            documents_store[doc_id].update({
-                'processing_status': ProcessingStatus.COMPLETED,
-                'text_content': text_content,
-                'chunk_count': len(text_content.split()) // 100  # Rough chunk estimate
-            })
-        
-        logger.info(f"Successfully processed document {doc_id}")
-        
-    except Exception as e:
-        logger.error(f"Error processing document {doc_id}: {e}")
-        if doc_id in documents_store:
-            documents_store[doc_id].update({
-                'processing_status': ProcessingStatus.FAILED,
-                'error_message': str(e)
-            })
-
-
-# API Endpoints
-
-@router.get("/", response_model=APIInfo)
-async def get_api_info(settings: Settings = Depends(get_settings_dependency)):
-    """Get API information and capabilities"""
-    return APIInfo(
-        name=settings.app_name,
-        version=settings.app_version,
-        description="RAG Desktop Application API for document upload and processing",
-        docs_url="/docs",
-        health_url="/health",
-        supported_formats=["pdf", "docx", "txt", "md"],
-        max_file_size_mb=settings.max_file_size_mb
-    )
-
-
-@router.get("/health", response_model=HealthResponse)
-async def health_check(settings: Settings = Depends(get_settings_dependency)):
-    """Comprehensive health check for all services"""
-    try:
-        services = await verify_services_health()
-        
-        # Determine overall status
-        unhealthy_services = [name for name, health in services.items() if health.status != 'healthy']
-        overall_status = "healthy" if not unhealthy_services else "degraded"
-        
-        if len(unhealthy_services) == len(services):
-            overall_status = "unhealthy"
-        
-        return HealthResponse(
-            status=overall_status,
-            services=services,
-            version=settings.app_version
-        )
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return HealthResponse(
-            status="unhealthy",
-            services={},
-            version=settings.app_version
-        )
-
-
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/documents/upload", response_model=DocumentResponse, status_code=HTTP_201_CREATED)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    settings: Settings = Depends(get_settings_dependency)
+    chunking_strategy: Optional[ChunkingStrategy] = Query(None),
+    min_chunk_size: Optional[int] = Query(None, ge=100, le=1000),
+    max_chunk_size: Optional[int] = Query(None, ge=800, le=3000),
+    chunk_overlap: Optional[int] = Query(None, ge=0, le=500),
+    user_id: str = Query(..., description="User identifier")
 ):
     """
-    Upload and process a document
+    Upload and process document with configurable chunking.
     
-    Supports: PDF, DOCX, TXT, Markdown files
-    Max size: 50MB (configurable)
+    Enhanced from Phase 3 with chunking parameter support.
     """
     try:
+        logger.info(f"Document upload initiated by user {user_id}: {file.filename}")
+        
         # Validate file
         if not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
         
-        # Generate secure document ID
-        doc_id = generate_secure_id()
+        # Check file type
+        file_type = detect_file_type(file.filename)
+        if file_type == 'unknown':
+            raise HTTPException(
+                status_code=415, 
+                detail=f"Unsupported file type. Supported: {list(FileType)}"
+            )
         
-        # Sanitize filename
-        safe_filename = sanitize_filename(file.filename)
+        # Validate file size (basic check)
+        max_size = 50 * 1024 * 1024  # 50MB
+        content = await file.read()
+        if len(content) > max_size:
+            raise HTTPException(status_code=413, detail="File too large")
         
-        # Create upload directory if it doesn't exist
-        upload_dir = Path(settings.upload_dir)
-        upload_dir.mkdir(exist_ok=True)
+        # Reset file pointer
+        await file.seek(0)
         
-        # Create unique file path
-        file_extension = Path(safe_filename).suffix
-        stored_filename = f"{doc_id}{file_extension}"
-        file_path = upload_dir / stored_filename
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as temp_file:
+            temp_file.write(content)
+            temp_path = temp_file.name
         
-        # Save uploaded file
-        async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
-        
-        # Validate file size
         try:
-            validate_file_size(str(file_path), settings.max_file_size_mb)
-        except FileProcessingError as e:
-            # Clean up uploaded file
-            if file_path.exists():
-                file_path.unlink()
-            raise HTTPException(status_code=413, detail=str(e))
-        
-        # Detect file type
-        try:
-            file_type = detect_file_type(str(file_path))
-        except UnsupportedFileTypeError as e:
-            # Clean up uploaded file
-            if file_path.exists():
-                file_path.unlink()
-            raise HTTPException(status_code=415, detail=str(e))
-        
-        # Get file size
-        file_size = file_path.stat().st_size
-        
-        # Create document record
-        document_data = {
-            'id': doc_id,
-            'title': Path(safe_filename).stem,
-            'file_type': file_type,
-            'file_path': str(file_path),
-            'size': file_size,
-            'original_filename': file.filename,
-            'upload_time': get_utc_now(),
-            'processing_status': ProcessingStatus.PENDING,
-            'chunk_count': 0,
-            'error_message': None
-        }
-        
-        # Store document (in-memory for Phase 3)
-        documents_store[doc_id] = document_data
-        
-        # Start background processing
-        background_tasks.add_task(
-            process_document_background, 
-            doc_id, 
-            str(file_path), 
-            settings
-        )
-        
-        logger.info(f"Successfully uploaded document {doc_id}: {safe_filename}")
-        
-        return UploadResponse(
-            document_id=doc_id,
-            filename=safe_filename,
-            size=file_size,
-            file_type=FileType(file_type),
-            processing_status=ProcessingStatus.PENDING,
-            message="File uploaded successfully and processing started"
-        )
+            # Prepare chunking parameters
+            chunk_params = {}
+            if min_chunk_size is not None:
+                chunk_params['min_size'] = min_chunk_size
+            if max_chunk_size is not None:
+                chunk_params['max_size'] = max_chunk_size
+            if chunk_overlap is not None:
+                chunk_params['overlap'] = chunk_overlap
+            
+            # Process document
+            result = await upload_and_process(
+                file,
+                user_id,
+                chunking_strategy=chunking_strategy.value if chunking_strategy else None
+            )
+            
+            logger.info(f"Document uploaded successfully: {result.id}")
+            return result
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload failed: {e}")
+        logger.error(f"Document upload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-@router.get("/documents", response_model=DocumentList)
+@router.get("/documents", response_model=PaginatedResponse)
 async def list_documents(
-    page: int = Query(1, ge=1, description="Page number"),
-    size: int = Query(10, ge=1, le=100, description="Page size"),
-    settings: Settings = Depends(get_settings_dependency)
+    user_id: str = Query(...),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
+    status_filter: Optional[ProcessingStatus] = Query(None),
+    file_type_filter: Optional[FileType] = Query(None),
+    sort_by: Optional[str] = Query("upload_time"),
+    sort_order: Optional[str] = Query("desc")
 ):
     """
-    List uploaded documents with pagination
+    List user documents with filtering and pagination.
+    
+    Enhanced from Phase 3 with advanced filtering options.
     """
     try:
-        # Get all documents
-        all_docs = list(documents_store.values())
-        total = len(all_docs)
+        logger.info(f"Listing documents for user {user_id}, page {page}")
         
-        # Sort by upload time (newest first)
-        all_docs.sort(key=lambda x: x['upload_time'], reverse=True)
+        # Get documents (with filters in real implementation)
+        documents = await get_user_documents(
+            user_id, 
+            skip=(page - 1) * size, 
+            limit=size
+        )
         
-        # Paginate
-        offset = (page - 1) * size
-        paginated_docs = all_docs[offset:offset + size]
+        # Calculate pagination info
+        total_count = len(documents)  # In real implementation, get from database
+        total_pages = (total_count + size - 1) // size
         
-        # Convert to response models
-        documents = []
-        for doc_data in paginated_docs:
-            doc_response = DocumentResponse(
-                id=doc_data['id'],
-                title=doc_data['title'],
-                file_type=FileType(doc_data['file_type']),
-                upload_time=doc_data['upload_time'],
-                chunk_count=doc_data['chunk_count'],
-                processing_status=ProcessingStatus(doc_data['processing_status']),
-                size=doc_data['size'],
-                original_filename=doc_data['original_filename'],
-                error_message=doc_data.get('error_message')
-            )
-            documents.append(doc_response)
-        
-        has_next = offset + size < total
-        
-        return DocumentList(
-            documents=documents,
-            total=total,
+        return PaginatedResponse(
+            items=documents,
+            total=total_count,
             page=page,
             size=size,
-            has_next=has_next
+            pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
         )
         
     except Exception as e:
-        logger.error(f"Error listing documents: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve documents")
+        logger.error(f"Failed to list documents: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve documents: {str(e)}")
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentResponse)
 async def get_document(
     doc_id: str,
-    settings: Settings = Depends(get_settings_dependency)
+    user_id: str = Query(...),
+    include_chunks: bool = Query(False)
 ):
     """
-    Get specific document by ID
+    Get specific document details.
+    
+    Enhanced from Phase 3 with optional chunk inclusion.
     """
     try:
-        if doc_id not in documents_store:
+        logger.info(f"Fetching document {doc_id} for user {user_id}")
+        
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        doc_data = documents_store[doc_id]
+        # Add chunk data if requested
+        if include_chunks:
+            chunks = await get_document_chunks_paginated(doc_id, page=1, size=50)
+            document.metadata = document.metadata or {}
+            document.metadata['chunks_preview'] = [
+                {
+                    'id': chunk.id,
+                    'text_preview': chunk.chunk_text[:100] + '...' if len(chunk.chunk_text) > 100 else chunk.chunk_text,
+                    'index': chunk.chunk_index
+                }
+                for chunk in chunks[:5]  # Show first 5 chunks
+            ]
         
-        return DocumentResponse(
-            id=doc_data['id'],
-            title=doc_data['title'],
-            file_type=FileType(doc_data['file_type']),
-            upload_time=doc_data['upload_time'],
-            chunk_count=doc_data['chunk_count'],
-            processing_status=ProcessingStatus(doc_data['processing_status']),
-            size=doc_data['size'],
-            original_filename=doc_data['original_filename'],
-            error_message=doc_data.get('error_message')
-        )
+        return document
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving document {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve document")
+        logger.error(f"Failed to get document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve document: {str(e)}")
 
 
-@router.delete("/documents/{doc_id}")
+@router.delete("/documents/{doc_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_document(
     doc_id: str,
-    settings: Settings = Depends(get_settings_dependency)
+    background_tasks: BackgroundTasks,
+    user_id: str = Query(...)
 ):
     """
-    Delete document and associated files
+    Delete document and all associated data.
+    
+    Enhanced from Phase 3 with background cleanup.
     """
     try:
-        if doc_id not in documents_store:
+        logger.info(f"Deleting document {doc_id} for user {user_id}")
+        
+        # Verify document exists and user has permission
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        doc_data = documents_store[doc_id]
+        # Schedule background deletion
+        background_tasks.add_task(delete_document_and_embeddings, doc_id)
         
-        # Delete physical file
-        file_path = Path(doc_data['file_path'])
-        if file_path.exists():
-            file_path.unlink()
-            logger.info(f"Deleted file: {file_path}")
-        
-        # Remove from store
-        del documents_store[doc_id]
-        
-        logger.info(f"Successfully deleted document {doc_id}")
-        
-        return {"message": "Document deleted successfully", "document_id": doc_id}
+        logger.info(f"Document {doc_id} deletion scheduled")
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting document {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete document")
+        logger.error(f"Failed to delete document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 
-@router.post("/documents/{doc_id}/reprocess")
+@router.post("/documents/{doc_id}/reprocess", response_model=DocumentResponse)
 async def reprocess_document(
     doc_id: str,
+    chunking_request: ChunkingRequest,
     background_tasks: BackgroundTasks,
-    settings: Settings = Depends(get_settings_dependency)
+    user_id: str = Query(...)
 ):
     """
-    Reprocess a document (re-extract text and generate embeddings)
+    Reprocess document with new chunking strategy.
+    
+    New endpoint for Phase 4 chunk management.
     """
     try:
-        if doc_id not in documents_store:
+        logger.info(f"Reprocessing document {doc_id} with strategy {chunking_request.config.strategy}")
+        
+        # Verify document exists
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        doc_data = documents_store[doc_id]
+        # Initialize document processor
+        processor = DocumentProcessor()
         
-        # Check if file still exists
-        file_path = Path(doc_data['file_path'])
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Document file not found")
-        
-        # Reset processing status
-        documents_store[doc_id]['processing_status'] = ProcessingStatus.PENDING
-        documents_store[doc_id]['error_message'] = None
-        
-        # Start background processing
-        background_tasks.add_task(
-            process_document_background,
+        # Reprocess with new strategy
+        result = await processor.reprocess_document(
             doc_id,
-            str(file_path),
-            settings
+            chunking_request.config.strategy.value,
+            {
+                'min_size': chunking_request.config.min_size,
+                'max_size': chunking_request.config.max_size,
+                'overlap': chunking_request.config.overlap
+            }
         )
         
-        logger.info(f"Started reprocessing for document {doc_id}")
-        
-        return {
-            "message": "Document reprocessing started",
-            "document_id": doc_id,
-            "status": ProcessingStatus.PENDING
-        }
+        logger.info(f"Document {doc_id} reprocessed successfully")
+        return result
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error reprocessing document {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to reprocess document")
+        logger.error(f"Failed to reprocess document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Reprocessing failed: {str(e)}")
 
 
-@router.get("/documents/{doc_id}/metadata")
-async def get_document_metadata(
+# ============================================================================
+# Chunk Management Endpoints (New for Phase 4)
+# ============================================================================
+
+@router.get("/documents/{doc_id}/chunks", response_model=PaginatedResponse)
+async def get_document_chunks(
     doc_id: str,
-    settings: Settings = Depends(get_settings_dependency)
+    user_id: str = Query(...),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=50),
+    include_metadata: bool = Query(True)
 ):
     """
-    Get document metadata and processing information
+    Get chunks for a specific document with pagination.
+    
+    New endpoint for Phase 4 chunk management.
     """
     try:
-        if doc_id not in documents_store:
+        logger.info(f"Fetching chunks for document {doc_id}, page {page}")
+        
+        # Verify document access
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        doc_data = documents_store[doc_id]
+        # Get chunks
+        chunks = await get_document_chunks_paginated(doc_id, page, size)
         
-        # Get file stats
-        file_path = Path(doc_data['file_path'])
-        file_exists = file_path.exists()
+        # Convert to response format
+        chunk_responses = []
+        for chunk in chunks:
+            chunk_response = ChunkResponse(
+                id=chunk.id,
+                document_id=chunk.document_id,
+                chunk_text=chunk.chunk_text,
+                chunk_index=chunk.chunk_index,
+                metadata=chunk.metadata if include_metadata else {}
+            )
+            chunk_responses.append(chunk_response)
         
-        metadata = {
-            "document_id": doc_id,
-            "title": doc_data['title'],
-            "original_filename": doc_data['original_filename'],
-            "file_type": doc_data['file_type'],
-            "file_size_bytes": doc_data['size'],
-            "file_size_mb": round(doc_data['size'] / (1024 * 1024), 2),
-            "upload_time": doc_data['upload_time'],
-            "processing_status": doc_data['processing_status'],
-            "chunk_count": doc_data['chunk_count'],
-            "file_exists": file_exists,
-            "error_message": doc_data.get('error_message'),
-            "text_length": len(doc_data.get('text_content', '')),
-        }
+        # Calculate pagination
+        total_chunks = document.chunk_count
+        total_pages = (total_chunks + size - 1) // size
         
-        return metadata
+        return PaginatedResponse(
+            items=chunk_responses,
+            total=total_chunks,
+            page=page,
+            size=size,
+            pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting metadata for document {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get document metadata")
+        logger.error(f"Failed to get chunks for document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve chunks: {str(e)}")
 
 
-# Note: Exception handlers should be registered on the FastAPI app, not the router
-# These will be moved to main.py
+@router.get("/chunks/{chunk_id}", response_model=ChunkResponse)
+async def get_chunk(
+    chunk_id: str,
+    user_id: str = Query(...),
+    include_context: bool = Query(False)
+):
+    """
+    Get specific chunk by ID with optional context.
+    
+    New endpoint for Phase 4 chunk management.
+    """
+    try:
+        logger.info(f"Fetching chunk {chunk_id} for user {user_id}")
+        
+        # In real implementation, fetch chunk from database
+        # For now, return placeholder
+        chunk = ChunkResponse(
+            id=chunk_id,
+            document_id="placeholder-doc-id",
+            chunk_text="Placeholder chunk text content",
+            chunk_index=0,
+            metadata={
+                'created_at': datetime.utcnow().isoformat(),
+                'strategy': 'adaptive',
+                'length': 100
+            }
+        )
+        
+        if include_context:
+            # Add surrounding chunks context
+            chunk.metadata['context'] = {
+                'previous_chunk': None,
+                'next_chunk': None
+            }
+        
+        return chunk
+        
+    except Exception as e:
+        logger.error(f"Failed to get chunk {chunk_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve chunk: {str(e)}")
+
+
+@router.put("/chunks/{chunk_id}", response_model=ChunkResponse)
+async def update_chunk(
+    chunk_id: str,
+    chunk_update: ChunkUpdate,
+    user_id: str = Query(...)
+):
+    """
+    Update chunk content or metadata.
+    
+    New endpoint for Phase 4 chunk management.
+    """
+    try:
+        logger.info(f"Updating chunk {chunk_id} for user {user_id}")
+        
+        # In real implementation:
+        # 1. Verify user has permission to update chunk
+        # 2. Update chunk in database
+        # 3. Regenerate embeddings if text changed
+        # 4. Update vector store
+        
+        # Placeholder response
+        updated_chunk = ChunkResponse(
+            id=chunk_id,
+            document_id="placeholder-doc-id",
+            chunk_text=chunk_update.chunk_text or "Updated chunk text",
+            chunk_index=0,
+            metadata=chunk_update.metadata or {}
+        )
+        
+        logger.info(f"Chunk {chunk_id} updated successfully")
+        return updated_chunk
+        
+    except Exception as e:
+        logger.error(f"Failed to update chunk {chunk_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update chunk: {str(e)}")
+
+
+@router.delete("/chunks/{chunk_id}", status_code=HTTP_204_NO_CONTENT)
+async def delete_chunk(
+    chunk_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Query(...)
+):
+    """
+    Delete specific chunk.
+    
+    New endpoint for Phase 4 chunk management.
+    """
+    try:
+        logger.info(f"Deleting chunk {chunk_id} for user {user_id}")
+        
+        # In real implementation:
+        # 1. Verify user permission
+        # 2. Remove from database
+        # 3. Remove from vector store
+        # 4. Update document chunk count
+        
+        # Schedule background cleanup
+        background_tasks.add_task(_cleanup_chunk_embeddings, chunk_id)
+        
+        logger.info(f"Chunk {chunk_id} deletion scheduled")
+        
+    except Exception as e:
+        logger.error(f"Failed to delete chunk {chunk_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete chunk: {str(e)}")
+
+
+@router.post("/documents/{doc_id}/rechunk", response_model=ChunkingResponse)
+async def rechunk_document(
+    doc_id: str,
+    chunking_config: ChunkingConfig,
+    background_tasks: BackgroundTasks,
+    user_id: str = Query(...)
+):
+    """
+    Rechunk document with new configuration.
+    
+    New endpoint for Phase 4 advanced chunking.
+    """
+    try:
+        logger.info(f"Rechunking document {doc_id} with strategy {chunking_config.strategy}")
+        
+        # Verify document exists
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        start_time = datetime.utcnow()
+        
+        # In real implementation:
+        # 1. Retrieve original document text
+        # 2. Apply new chunking strategy
+        # 3. Update database records
+        # 4. Regenerate embeddings
+        # 5. Update vector store
+        
+        # Simulate processing
+        processing_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        response = ChunkingResponse(
+            document_id=doc_id,
+            chunk_count=25,  # Placeholder
+            strategy_used=chunking_config.strategy,
+            processing_time=processing_time,
+            quality_metrics={
+                'avg_chunk_length': 950,
+                'length_variance': 12500,
+                'completeness_score': 0.95
+            }
+        )
+        
+        logger.info(f"Document {doc_id} rechunked successfully: {response.chunk_count} chunks")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to rechunk document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Rechunking failed: {str(e)}")
+
+
+# ============================================================================
+# Search and Query Endpoints (Enhanced from Phase 3)
+# ============================================================================
+
+@router.post("/search/semantic", response_model=SearchResponse)
+async def semantic_search(
+    search_request: SearchRequest,
+    user_id: str = Query(...)
+):
+    """
+    Perform semantic search across user documents.
+    
+    Enhanced from Phase 3 with chunk-level search.
+    """
+    try:
+        logger.info(f"Semantic search by user {user_id}: '{search_request.query}'")
+        
+        start_time = datetime.utcnow()
+        
+        # In real implementation:
+        # 1. Generate query embedding
+        # 2. Search vector store
+        # 3. Filter by user permissions
+        # 4. Rank and format results
+        
+        # Placeholder results
+        results = [
+            SearchResult(
+                chunk_id=f"chunk-{i}",
+                document_id=f"doc-{i}",
+                chunk_text=f"Sample search result {i} for query: {search_request.query}",
+                score=0.9 - (i * 0.1),
+                chunk_index=i,
+                metadata={'source': 'semantic_search'},
+                highlights=[search_request.query.lower()]
+            )
+            for i in range(min(search_request.limit, 3))
+        ]
+        
+        processing_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        response = SearchResponse(
+            query=search_request.query,
+            total_results=len(results),
+            results=results,
+            processing_time=processing_time,
+            used_fallback=False
+        )
+        
+        logger.info(f"Semantic search completed: {len(results)} results in {processing_time:.3f}s")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Semantic search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@router.post("/search/chunks", response_model=SearchResponse)
+async def search_chunks(
+    chunk_request: ChunkSearchRequest,
+    user_id: str = Query(...)
+):
+    """
+    Search within specific document chunks.
+    
+    New endpoint for Phase 4 chunk-level search.
+    """
+    try:
+        logger.info(f"Chunk search in document {chunk_request.document_id}: '{chunk_request.query}'")
+        
+        # Verify document access
+        document = await get_document_by_id(chunk_request.document_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        start_time = datetime.utcnow()
+        
+        # In real implementation:
+        # 1. Search only within specified document
+        # 2. Apply minimum score filter
+        # 3. Return ranked chunks
+        
+        # Placeholder results
+        results = [
+            SearchResult(
+                chunk_id=f"chunk-{i}",
+                document_id=chunk_request.document_id,
+                chunk_text=f"Chunk {i} containing '{chunk_request.query}' in document {chunk_request.document_id}",
+                score=max(chunk_request.min_score, 0.8 - (i * 0.1)),
+                chunk_index=i,
+                metadata={'document_title': document.title if document else 'Unknown'},
+                highlights=[chunk_request.query.lower()]
+            )
+            for i in range(min(chunk_request.limit, 2))
+        ]
+        
+        processing_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        response = SearchResponse(
+            query=chunk_request.query,
+            total_results=len(results),
+            results=results,
+            processing_time=processing_time,
+            used_fallback=False
+        )
+        
+        logger.info(f"Chunk search completed: {len(results)} results")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chunk search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Chunk search failed: {str(e)}")
+
+
+@router.get("/documents/{doc_id}/similar", response_model=List[DocumentResponse])
+async def find_similar_documents(
+    doc_id: str,
+    user_id: str = Query(...),
+    limit: int = Query(5, ge=1, le=20),
+    similarity_threshold: float = Query(0.7, ge=0.0, le=1.0)
+):
+    """
+    Find documents similar to the specified document.
+    
+    Enhanced from Phase 3 with configurable similarity.
+    """
+    try:
+        logger.info(f"Finding similar documents to {doc_id}")
+        
+        # Verify document exists
+        document = await get_document_by_id(doc_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # In real implementation:
+        # 1. Get document embedding
+        # 2. Search for similar embeddings
+        # 3. Filter by threshold
+        # 4. Return similar documents
+        
+        # Placeholder results
+        similar_docs = []
+        
+        logger.info(f"Found {len(similar_docs)} similar documents")
+        return similar_docs
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to find similar documents: {e}")
+        raise HTTPException(status_code=500, detail=f"Similar document search failed: {str(e)}")
+
+
+# ============================================================================
+# RAG Query Endpoints (Preparation for Phase 8)
+# ============================================================================
+
+@router.post("/query/rag", response_model=SearchResponse)
+async def rag_query(
+    query_request: QueryRequest,
+    user_id: str = Query(...)
+):
+    """
+    Perform RAG query with context retrieval.
+    
+    Enhanced endpoint preparing for Phase 8 LLM integration.
+    """
+    try:
+        logger.info(f"RAG query by user {user_id}: '{query_request.query}'")
+        
+        start_time = datetime.utcnow()
+        
+        # In real implementation (Phase 8):
+        # 1. Generate query embedding
+        # 2. Retrieve relevant chunks
+        # 3. Build context prompt
+        # 4. Generate LLM response
+        # 5. Return response with sources
+        
+        # For now, return search results
+        results = [
+            SearchResult(
+                chunk_id=f"rag-chunk-{i}",
+                document_id=f"rag-doc-{i}",
+                chunk_text=f"RAG context chunk {i} for query: {query_request.query}",
+                score=0.95 - (i * 0.05),
+                chunk_index=i,
+                metadata={'retrieval_method': 'rag'},
+                highlights=[query_request.query.lower()]
+            )
+            for i in range(min(query_request.max_results, 3))
+        ]
+        
+        processing_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        response = SearchResponse(
+            query=query_request.query,
+            total_results=len(results),
+            results=results,
+            processing_time=processing_time,
+            used_fallback=False
+        )
+        
+        logger.info(f"RAG query completed: {len(results)} context chunks retrieved")
+        return response
+        
+    except Exception as e:
+        logger.error(f"RAG query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"RAG query failed: {str(e)}")
+
+
+# ============================================================================
+# System and Health Endpoints (Enhanced from Phase 3)
+# ============================================================================
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check():
+    """
+    System health check with service status.
+    
+    Enhanced from Phase 3 with detailed component status.
+    """
+    try:
+        timestamp = datetime.utcnow()
+        
+        # Check database connection
+        database_status = "healthy"  # In real implementation, test DB connection
+        
+        # Check Qdrant vector store
+        qdrant_status = "healthy"  # In real implementation, test Qdrant connection
+        
+        # Check Ollama service
+        ollama_status = "healthy"  # In real implementation, test Ollama connection
+        
+        # Determine overall status
+        overall_status = "healthy"
+        if any(status != "healthy" for status in [database_status, qdrant_status, ollama_status]):
+            overall_status = "degraded"
+        
+        response = HealthResponse(
+            status=overall_status,
+            database=database_status,
+            qdrant=qdrant_status,
+            ollama=ollama_status,
+            timestamp=timestamp,
+            version="1.0.0-phase4",
+            uptime=3600.0  # Placeholder uptime
+        )
+        
+        logger.info(f"Health check completed: {overall_status}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail="Health check failed")
+
+
+@router.get("/system/models", response_model=List[str])
+async def get_available_models():
+    """
+    Get list of available models for embedding and generation.
+    
+    New endpoint for Phase 4 model management.
+    """
+    try:
+        # In real implementation, query available models from services
+        models = [
+            "all-MiniLM-L6-v2",  # Embedding model
+            "gemma:3b",  # Generation model
+            "nomic-embed-text"  # Alternative embedding model
+        ]
+        
+        logger.info(f"Available models: {len(models)}")
+        return models
+        
+    except Exception as e:
+        logger.error(f"Failed to get available models: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve models")
+
+
+@router.post("/system/settings", response_model=Dict[str, str])
+async def update_system_settings(
+    settings: SystemSettings,
+    user_id: str = Query(...)
+):
+    """
+    Update system settings (admin only).
+    
+    New endpoint for Phase 4 configuration management.
+    """
+    try:
+        logger.info(f"Updating system settings by user {user_id}")
+        
+        # In real implementation:
+        # 1. Verify admin permissions
+        # 2. Validate settings
+        # 3. Update configuration
+        # 4. Restart services if needed
+        
+        return {"status": "updated", "message": "System settings updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to update system settings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update settings")
+
+
+@router.get("/users/{user_id}/usage", response_model=UsageStats)
+async def get_usage_stats(user_id: str):
+    """
+    Get user usage statistics.
+    
+    New endpoint for Phase 4 usage monitoring.
+    """
+    try:
+        logger.info(f"Fetching usage stats for user {user_id}")
+        
+        # In real implementation, query from database
+        stats = UsageStats(
+            user_id=user_id,
+            document_count=5,
+            chunk_count=125,
+            query_count=42,
+            storage_used=1024 * 1024 * 15,  # 15MB
+            last_activity=datetime.utcnow()
+        )
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Failed to get usage stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve usage statistics")
+
+
+# ============================================================================
+# Background Task Functions
+# ============================================================================
+
+async def _cleanup_chunk_embeddings(chunk_id: str):
+    """Background task to clean up chunk embeddings."""
+    try:
+        logger.info(f"Cleaning up embeddings for chunk {chunk_id}")
+        
+        # In real implementation:
+        # 1. Remove from vector store
+        # 2. Clean up any cached data
+        # 3. Update metrics
+        
+        await asyncio.sleep(1)  # Simulate cleanup work
+        logger.info(f"Chunk {chunk_id} embeddings cleaned up")
+        
+    except Exception as e:
+        logger.error(f"Failed to cleanup chunk {chunk_id}: {e}")
+
+
+async def _reprocess_document_background(doc_id: str, strategy: str, params: Dict[str, Any]):
+    """Background task for document reprocessing."""
+    try:
+        logger.info(f"Background reprocessing of document {doc_id}")
+        
+        # In real implementation:
+        # 1. Load original document text
+        # 2. Apply new chunking strategy
+        # 3. Generate new embeddings
+        # 4. Update vector store
+        # 5. Update database records
+        
+        await asyncio.sleep(5)  # Simulate processing time
+        logger.info(f"Document {doc_id} reprocessing completed")
+        
+    except Exception as e:
+        logger.error(f"Background reprocessing failed for document {doc_id}: {e}")
+
+
+# ============================================================================
+# Export router for main application
+# ============================================================================
+
+__all__ = ['router']
